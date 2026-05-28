@@ -8,7 +8,7 @@
     "dev-autox": "node scrpits/dev-autox.mjs",
     "build": "vue-tsc -b && vite build",
     "build-autox": "node scrpits/build-autox.mjs",
-    "save-autox":"node scrpits/save-autox.mjs",
+    "save-autox": "node scrpits/save-autox.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -29,7 +29,7 @@
     "@vitejs/plugin-vue": "^5.2.1",
     "@vue/tsconfig": "^0.7.0",
     "archiver": "^7.0.1",
-    "autox-v6-api": "^1.0.2",
+    "autox-v6-api": "^1.1.0",
     "axios": "^1.8.4",
     "fs-extra": "^11.2.0",
     "inquirer": "^10.1.8",

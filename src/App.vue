@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { f7App, f7View, f7Page, f7Navbar, f7Toolbar, f7Link, f7Button } from 'framework7-vue';
-import HomePage from './components/HomePage .vue'
+import { f7App, f7View, f7Page, f7Navbar, f7Button, f7Block } from 'framework7-vue';
+import HomePage from './components/HomePage.vue'
 import { callHandler } from './js_bridge'
 
 function exit() {
@@ -12,19 +12,14 @@ function exit() {
   <f7App theme="auto">
     <f7View main>
       <f7-page>
-        <!-- Top Navbar-->
-        <f7-navbar title="Awesome App"></f7-navbar>
-        <!-- Toolbar-->
-        <f7-toolbar bottom>
-          <f7-link>Link 1</f7-link>
-          <f7-link>Link 3</f7-link>
-          <f7-link>Link 2</f7-link>
-        </f7-toolbar>
-        <HomePage></HomePage>
-        <!-- Page Content -->
-        <p>Page content goes here</p>
-        <f7-link href="/about/">About App</f7-link>
-        <f7-button @click="exit" fill round>退出APP</f7-button>
+        <!-- 顶部导航栏 -->
+        <f7-navbar title="微信自动接听" />
+        <!-- 首页内容：控制面板 -->
+        <HomePage />
+        <!-- 底部退出按钮 -->
+        <f7-block inset>
+          <f7-button @click="exit" fill round color="red">退出</f7-button>
+        </f7-block>
       </f7-page>
     </f7View>
   </f7App>
