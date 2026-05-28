@@ -1,0 +1,40 @@
+{
+  "name": "webui-autox-vite-demo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "dev-autox": "node scrpits/dev-autox.mjs",
+    "build": "vue-tsc -b && vite build",
+    "build-autox": "node scrpits/build-autox.mjs",
+    "save-autox":"node scrpits/save-autox.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "framework7": "^8.3.4",
+    "framework7-vue": "^8.3.4",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.10",
+    "@babel/preset-env": "^7.26.9",
+    "@eslint/js": "^9.23.0",
+    "@rollup/plugin-babel": "^6.0.4",
+    "@rollup/plugin-commonjs": "^26.0.1",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-replace": "^5.0.7",
+    "@rollup/plugin-terser": "^0.4.4",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/tsconfig": "^0.7.0",
+    "archiver": "^7.0.1",
+    "autox-v6-api": "^1.0.2",
+    "axios": "^1.8.4",
+    "fs-extra": "^11.2.0",
+    "inquirer": "^10.1.8",
+    "typescript": "~5.7.2",
+    "vite": "^6.2.0",
+    "vue-tsc": "^2.2.4"
+  }
+}
