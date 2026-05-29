@@ -20,10 +20,18 @@
 
             <!-- 横幅坐标 -->
             <f7-block-title>横幅坐标（可选）</f7-block-title>
-            <f7-block inset><p class="section-desc">来电时顶部小横幅的位置。不填则自动检测。</p></f7-block>
+            <f7-block inset><p class="section-desc">来电时顶部横幅的位置。不填则自动检测。</p></f7-block>
             <f7-list inset>
                 <f7-list-input label="X" type="number" placeholder="540" :value="form.bannerX" @input="form.bannerX = Number($event.target.value)" />
                 <f7-list-input label="Y" type="number" placeholder="80" :value="form.bannerY" @input="form.bannerY = Number($event.target.value)" />
+            </f7-list>
+
+            <!-- 小窗坐标 -->
+            <f7-block-title>小窗坐标（可选）</f7-block-title>
+            <f7-block inset><p class="section-desc">操作手机后横幅变成右上角小窗的位置。不填则自动检测。</p></f7-block>
+            <f7-list inset>
+                <f7-list-input label="X" type="number" placeholder="990" :value="form.floatX" @input="form.floatX = Number($event.target.value)" />
+                <f7-list-input label="Y" type="number" placeholder="170" :value="form.floatY" @input="form.floatY = Number($event.target.value)" />
             </f7-list>
 
             <!-- 接听坐标 -->
@@ -66,7 +74,7 @@ import { callHandler, registerHandler } from '../js_bridge'
 const status = ref('运行中')
 const logs = ref<string[]>([])
 
-const form = reactive({ bannerX: 0, bannerY: 0, answerX: 0, answerY: 0 })
+const form = reactive({ bannerX: 0, bannerY: 0, floatX: 0, floatY: 0, answerX: 0, answerY: 0 })
 
 const statusClass = computed(() => {
     if (status.value === '运行中') return 'status-running'
@@ -88,9 +96,10 @@ function stopAutoAnswer() { callHandler('stop') }
 function saveConfig() {
     callHandler('updateConfig', JSON.stringify({
         bannerX: form.bannerX, bannerY: form.bannerY,
+        floatX: form.floatX, floatY: form.floatY,
         answerX: form.answerX, answerY: form.answerY,
     }))
-    addLog('已保存 横幅(' + form.bannerX + ',' + form.bannerY + ') 接听(' + form.answerX + ',' + form.answerY + ')')
+    addLog('已保存 横幅(' + form.bannerX + ',' + form.bannerY + ') 小窗(' + form.floatX + ',' + form.floatY + ') 接听(' + form.answerX + ',' + form.answerY + ')')
 }
 
 onMounted(() => {
@@ -101,7 +110,11 @@ onMounted(() => {
         if (data) {
             try {
                 const c = JSON.parse(data).config
-                if (c) { form.bannerX = c.bannerX || 0; form.bannerY = c.bannerY || 0; form.answerX = c.answerX || 0; form.answerY = c.answerY || 0 }
+                if (c) {
+                    form.bannerX = c.bannerX || 0; form.bannerY = c.bannerY || 0
+                    form.floatX = c.floatX || 0; form.floatY = c.floatY || 0
+                    form.answerX = c.answerX || 0; form.answerY = c.answerY || 0
+                }
             } catch (e) { /* */ }
         }
     })

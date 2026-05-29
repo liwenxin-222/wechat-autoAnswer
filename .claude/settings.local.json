@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      "Bash(npm run build-autox:*)"
+      "Bash(npm run build-autox:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

@@ -25,6 +25,8 @@ var autoHangupTimeout = 0;
 // 手动坐标（0 表示未设置，走自动检测）
 var bannerX = 0;
 var bannerY = 0;
+var floatX = 0;
+var floatY = 0;
 var answerX = 0;
 var answerY = 0;
 
@@ -90,6 +92,8 @@ export function updateConfig(opts: {
     autoHangupTimeout?: number;
     bannerX?: number;
     bannerY?: number;
+    floatX?: number;
+    floatY?: number;
     answerX?: number;
     answerY?: number;
     jitter?: number;
@@ -99,6 +103,8 @@ export function updateConfig(opts: {
     if (opts.autoHangupTimeout !== undefined) { autoHangupTimeout = opts.autoHangupTimeout; storage.put("autoHangupTimeout", autoHangupTimeout); }
     if (opts.bannerX !== undefined) { bannerX = opts.bannerX; storage.put("bannerX", bannerX); }
     if (opts.bannerY !== undefined) { bannerY = opts.bannerY; storage.put("bannerY", bannerY); }
+    if (opts.floatX !== undefined) { floatX = opts.floatX; storage.put("floatX", floatX); }
+    if (opts.floatY !== undefined) { floatY = opts.floatY; storage.put("floatY", floatY); }
     if (opts.answerX !== undefined) { answerX = opts.answerX; storage.put("answerX", answerX); }
     if (opts.answerY !== undefined) { answerY = opts.answerY; storage.put("answerY", answerY); }
     if (opts.jitter !== undefined) { jitter = opts.jitter; storage.put("jitter", jitter); }
@@ -113,6 +119,8 @@ export function getConfig() {
         autoHangupTimeout: autoHangupTimeout,
         bannerX: bannerX,
         bannerY: bannerY,
+        floatX: floatX,
+        floatY: floatY,
         answerX: answerX,
         answerY: answerY,
         jitter: jitter,
@@ -266,6 +274,64 @@ function autoFindHangupButton(): { x: number; y: number } {
 
 // ======================== 接听操作 ========================
 
+/**
+ * 将来电界面展开为全屏
+ * 处理三种状态：全屏来电、顶部横幅、右上角小窗
+ */
+function expandCallUI() {
+    // 已经是全屏来电，不需要展开
+    if (isFullScreenCallUI()) {
+        log("已检测到全屏来电界面");
+        return;
+    }
+
+    // 尝试1：点击顶部横幅（来电时的顶部通知条）
+    log("非全屏来电，尝试点击横幅...");
+    if (bannerX !== 0 && bannerY !== 0) {
+        // 手动横幅坐标
+        var bp = addJitter(bannerX, bannerY);
+        log("点击手动横幅坐标: (" + bp.x + ", " + bp.y + ")");
+        click(bp.x, bp.y);
+    } else {
+        // 自动计算横幅位置：屏幕顶部居中
+        var bx = Math.floor(device.width / 2);
+        var by = Math.floor(device.height * 0.06);
+        var bj = addJitter(bx, by);
+        log("点击自动横幅: (" + bj.x + ", " + bj.y + ")");
+        click(bj.x, bj.y);
+    }
+    sleep(1500);
+
+    // 点击后检查是否展开了
+    if (isFullScreenCallUI()) {
+        log("横幅展开成功");
+        return;
+    }
+
+    // 尝试2：点击右上角小窗（操作手机后横幅会变成右上角小窗）
+    log("横幅未展开，尝试点击右上角小窗...");
+    if (floatX !== 0 && floatY !== 0) {
+        // 手动小窗坐标
+        var fp = addJitter(floatX, floatY);
+        log("点击手动小窗坐标: (" + fp.x + ", " + fp.y + ")");
+        click(fp.x, fp.y);
+    } else {
+        // 自动计算：右上角
+        var wx = Math.floor(device.width * 0.92);
+        var wy = Math.floor(device.height * 0.07);
+        var wj = addJitter(wx, wy);
+        log("点击自动小窗: (" + wj.x + ", " + wj.y + ")");
+        click(wj.x, wj.y);
+    }
+    sleep(1500);
+
+    if (isFullScreenCallUI()) {
+        log("小窗展开成功");
+    } else {
+        log("展开后仍未检测到全屏来电，继续尝试接听");
+    }
+}
+
 function isFullScreenCallUI(): boolean {
     var keywords = ["视频通话", "语音通话", "邀请你"];
     for (var i = 0; i < keywords.length; i++) {
@@ -288,27 +354,14 @@ function answerCall() {
         sleep(500);
     }
 
-    // 步骤1：处理横幅
-    // 如果设置了横幅坐标，直接用；否则自动判断
-    if (bannerX !== 0 && bannerY !== 0) {
-        // 有手动横幅坐标，先判断是否需要点横幅
-        if (!isFullScreenCallUI()) {
-            var bp = addJitter(bannerX, bannerY);
-            log("手动横幅坐标，点击展开: (" + bp.x + ", " + bp.y + ")");
-            click(bp.x, bp.y);
-            sleep(1500);
-        }
-    } else {
-        // 没设横幅坐标，走自动检测
-        if (!isFullScreenCallUI()) {
-            var bx = Math.floor(device.width / 2);
-            var by = Math.floor(device.height * 0.06);
-            var bj = addJitter(bx, by);
-            log("自动检测到横幅，点击展开: (" + bj.x + ", " + bj.y + ")");
-            click(bj.x, bj.y);
-            sleep(1500);
-        }
-    }
+    // 步骤1：将来电界面展开为全屏
+    // 微信来电有三种状态：
+    //   1. 全屏来电 → 直接接听
+    //   2. 顶部横幅 → 点横幅展开
+    //   3. 右上角小窗（操作手机后横幅变成的）→ 点小窗展开
+    expandCallUI();
+
+    // 步骤2：点击接听按钮
 
     // 步骤2：点击接听按钮
     var ax: number;
@@ -422,12 +475,15 @@ export function init() {
     autoHangupTimeout = storage.get("autoHangupTimeout", 0);
     bannerX = storage.get("bannerX", 0);
     bannerY = storage.get("bannerY", 0);
+    floatX = storage.get("floatX", 0);
+    floatY = storage.get("floatY", 0);
     answerX = storage.get("answerX", 0);
     answerY = storage.get("answerY", 0);
     jitter = storage.get("jitter", 5);
 
     log("延迟: " + (answerDelayMin / 1000) + "-" + (answerDelayMax / 1000) + " 秒");
     log("横幅坐标: " + (bannerX ? "(" + bannerX + "," + bannerY + ")" : "未设置，自动检测"));
+    log("小窗坐标: " + (floatX ? "(" + floatX + "," + floatY + ")" : "未设置，自动检测"));
     log("接听坐标: " + (answerX ? "(" + answerX + "," + answerY + ")" : "未设置，自动检测"));
     log("随机偏移: ±" + jitter + "px");
 
