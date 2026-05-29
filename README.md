@@ -1,5 +1,125 @@
-# Vue 3 + TypeScript + Vite
+# 微信视频电话自动接听
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+家里老人不会接微信视频电话，用别的监控设备延迟又太高，所以想到用自动接听微信的方式，让家人随时能通过微信视频看到老人的情况。
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+## 准备工作
+
+### 手机要求
+
+- Android 手机
+- 安装 AutoX.js（[下载地址](https://github.com/autox-community/AutoX_aiselp/releases)）
+- 安装微信
+
+### 电脑要求
+
+- 安装 Node.js（16 以上版本）
+- 安装 VS Code
+
+## 使用步骤
+
+### 第一步：下载项目
+
+把项目下载到电脑，然后用 VS Code 打开项目文件夹。
+
+### 第二步：安装依赖
+
+在 VS Code 终端里运行：
+
+```
+npm install
+```
+
+### 第三步：构建项目
+
+```
+npm run build-autox
+```
+
+构建完成后会生成 `dist-autox` 文件夹和一个 `dist-autox.zip` 压缩包。
+
+### 第四步：传到手机
+
+**方法一：微信/QQ 文件传输（最简单，不用数据线）**
+
+1. 构建后在项目文件夹找到 `dist-autox.zip`
+2. 通过微信"文件传输助手"或 QQ 把 `dist-autox.zip` 发到手机
+3. 手机上收到文件后，用 AutoX.js 打开：
+   - 打开 AutoX.js → 点击右上角 **+** 号 → **导入** → 选择收到的 zip 文件
+4. 导入后在 AutoX.js 里点击 `start-ui.js` 运行
+
+**方法二：数据线**
+
+1. 用数据线连接手机和电脑
+2. 把 `dist-autox` 文件夹复制到手机的 AutoX.js 脚本目录（通常是 `内部存储/脚本/` 或 AutoX.js 里显示的主目录）
+
+**方法三：npm 命令（手机和电脑在同一 WiFi 下）**
+
+1. 手机打开 AutoX.js，在侧边栏打开 USB 调试
+2. 电脑终端运行：
+
+```
+npm run save-autox
+```
+
+3. 输入手机屏幕上显示的 IP 地址
+
+### 第五步：手机上运行
+
+1. 手机打开 AutoX.js
+2. 找到 `dist-autox` 文件夹
+3. 点击 `start-ui.js` 运行
+
+## 手机设置
+
+### 必须开启的权限
+
+在手机 **设置** 里找到 AutoX.js，开启以下权限：
+
+- **无障碍服务** — 必须，用来模拟点击
+- **悬浮窗权限** — 必须，显示控制界面
+- **通知权限** — 必须，用来监听微信来电通知
+- **后台弹出界面** — 建议开启
+- **自启动** — 建议开启，开机后自动运行
+
+### 微信设置
+
+- 确保微信的 **通知权限** 已开启
+- 建议把微信设为 **允许后台活动**，防止系统杀掉微信进程
+
+## 坐标配置（可选）
+
+脚本默认会自动检测接听按钮的位置。如果自动检测不准，可以手动设置坐标。
+
+### 怎么获取坐标
+
+1. 手机 **设置 → 开发者选项 → 开启"指针位置"**
+2. 让家人给老人打一个微信视频电话
+3. 手指放到接听按钮上，记下屏幕顶部显示的 **X** 和 **Y** 值
+4. 在脚本的界面上填入坐标，点保存
+
+有两个坐标可以设置：
+
+| 坐标 | 说明 |
+|------|------|
+| **横幅坐标** | 来电时顶部小横幅的位置（如果来电是全屏则不需要设置） |
+| **接听坐标** | 全屏来电时绿色接听按钮的位置 |
+
+不填则自动检测，填了就用手动坐标。每次点击会自动加 ±5 像素的随机偏移，模拟手指点击。配置保存后重启脚本也会保留。
+
+## 常见问题
+
+**问：脚本运行后没反应？**
+
+检查无障碍服务是否开启。在手机 **设置 → 无障碍** 里找到 AutoX.js 并开启。
+
+**问：能检测到来电但不接听？**
+
+自动检测的按钮位置可能不准。按上面的方法手动设置坐标。
+
+**问：手机重启后脚本不运行了？**
+
+在 AutoX.js 设置里开启 **自启动**，或者每次开机后手动运行一次脚本。
+
+**问：老人不小心关掉了脚本怎么办？**
+
+可以教老人看到 AutoX.js 的悬浮窗图标就点一下，或者帮老人设置 AutoX.js 开机自启动。
