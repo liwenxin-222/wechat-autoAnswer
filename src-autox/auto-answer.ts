@@ -1,33 +1,35 @@
 /**
  * 微信视频/语音电话自动接听模块
  *
- * 运行环境：AutoX.js 子线程（由 main.tsx 中 threads.start 启动）
- * 所有耗时操作（通知监听、轮询、接听操作）都在子线程中运行，
- * 不会阻塞 UI 线程。
- *
- * 核心流程：
- *   1. 通知监听：监听微信通知栏消息检测来电
- *   2. 轮询检测：定时检查当前界面是否为来电界面（备用方案）
- *   3. 接听操作：在来电界面查找并点击接听按钮
+ * 接听流程：
+ *   1. 检测到来电（通知监听 + 轮询）
+ *   2. 判断横幅/全屏，横幅则先点击展开
+ *   3. 点击接听按钮
+ *      - 如果设置了手动坐标 → 直接用（加随机偏移 ±5px）
+ *      - 如果没设置 → 自动检测（控件查找 → 比例计算）
  */
+
+// ======================== 持久化存储 ========================
+
+var storage = storages.create("wechat_auto_answer");
 
 // ======================== 配置 ========================
 
-/** 接听延迟范围（毫秒），随机取值模拟人工反应 */
 var answerDelayMin = 2000;
 var answerDelayMax = 5000;
-
-/** 检测间隔（毫秒） */
 var checkInterval = 1000;
-
-/** 微信包名 */
 var wechatPackage = "com.tencent.mm";
-
-/** 联系人白名单（为空则接听所有人） */
 var allowedContacts: string[] = [];
-
-/** 自动挂断超时（秒），0 表示不自动挂断 */
 var autoHangupTimeout = 0;
+
+// 手动坐标（0 表示未设置，走自动检测）
+var bannerX = 0;
+var bannerY = 0;
+var answerX = 0;
+var answerY = 0;
+
+/** 坐标点击随机偏移范围（像素），模拟人工不精确点击 */
+var jitter = 5;
 
 // ======================== 状态 ========================
 
@@ -40,57 +42,67 @@ var onLog: ((msg: string) => void) | null = null;
 
 function log(msg: string) {
     console.log(msg);
-    if (onLog) {
-        onLog(msg);
-    }
+    if (onLog) { onLog(msg); }
 }
 
 function setStatus(status: string) {
-    log("状态变更: " + status);
-    if (onStatusChange) {
-        onStatusChange(status);
-    }
+    log("状态: " + status);
+    if (onStatusChange) { onStatusChange(status); }
+}
+
+// ======================== 工具函数 ========================
+
+/** 给坐标加随机偏移，模拟手指不精确点击 */
+function addJitter(x: number, y: number): { x: number; y: number } {
+    var jx = x + random(-jitter, jitter);
+    var jy = y + random(-jitter, jitter);
+    // 防止越界
+    if (jx < 0) jx = 0;
+    if (jy < 0) jy = 0;
+    if (jx > device.width) jx = device.width;
+    if (jy > device.height) jy = device.height;
+    return { x: jx, y: jy };
 }
 
 // ======================== 对外接口 ========================
 
-export function setOnStatusChange(cb: (status: string) => void) {
-    onStatusChange = cb;
-}
-
-export function setOnLog(cb: (msg: string) => void) {
-    onLog = cb;
-}
+export function setOnStatusChange(cb: (status: string) => void) { onStatusChange = cb; }
+export function setOnLog(cb: (msg: string) => void) { onLog = cb; }
 
 export function start() {
     if (isRunning) return;
     isRunning = true;
     hasAnswered = false;
     setStatus("运行中");
-    log("自动接听已启动");
 }
 
 export function stop() {
     isRunning = false;
     setStatus("已暂停");
-    log("自动接听已暂停");
 }
 
-export function getRunning(): boolean {
-    return isRunning;
-}
+export function getRunning(): boolean { return isRunning; }
 
 export function updateConfig(opts: {
     answerDelayMin?: number;
     answerDelayMax?: number;
     allowedContacts?: string[];
     autoHangupTimeout?: number;
+    bannerX?: number;
+    bannerY?: number;
+    answerX?: number;
+    answerY?: number;
+    jitter?: number;
 }) {
-    if (opts.answerDelayMin !== undefined) answerDelayMin = opts.answerDelayMin;
-    if (opts.answerDelayMax !== undefined) answerDelayMax = opts.answerDelayMax;
-    if (opts.allowedContacts !== undefined) allowedContacts = opts.allowedContacts;
-    if (opts.autoHangupTimeout !== undefined) autoHangupTimeout = opts.autoHangupTimeout;
-    log("配置已更新");
+    if (opts.answerDelayMin !== undefined) { answerDelayMin = opts.answerDelayMin; storage.put("answerDelayMin", answerDelayMin); }
+    if (opts.answerDelayMax !== undefined) { answerDelayMax = opts.answerDelayMax; storage.put("answerDelayMax", answerDelayMax); }
+    if (opts.autoHangupTimeout !== undefined) { autoHangupTimeout = opts.autoHangupTimeout; storage.put("autoHangupTimeout", autoHangupTimeout); }
+    if (opts.bannerX !== undefined) { bannerX = opts.bannerX; storage.put("bannerX", bannerX); }
+    if (opts.bannerY !== undefined) { bannerY = opts.bannerY; storage.put("bannerY", bannerY); }
+    if (opts.answerX !== undefined) { answerX = opts.answerX; storage.put("answerX", answerX); }
+    if (opts.answerY !== undefined) { answerY = opts.answerY; storage.put("answerY", answerY); }
+    if (opts.jitter !== undefined) { jitter = opts.jitter; storage.put("jitter", jitter); }
+    log("配置已更新并保存");
 }
 
 export function getConfig() {
@@ -99,6 +111,11 @@ export function getConfig() {
         answerDelayMax: answerDelayMax,
         allowedContacts: allowedContacts,
         autoHangupTimeout: autoHangupTimeout,
+        bannerX: bannerX,
+        bannerY: bannerY,
+        answerX: answerX,
+        answerY: answerY,
+        jitter: jitter,
     };
 }
 
@@ -111,9 +128,7 @@ function isVideoCallNotification(text: string): boolean {
         "Invited you to a video call", "Invited you to a voice call"
     ];
     for (var i = 0; i < keywords.length; i++) {
-        if (text.indexOf(keywords[i]) !== -1) {
-            return true;
-        }
+        if (text.indexOf(keywords[i]) !== -1) return true;
     }
     return false;
 }
@@ -128,17 +143,14 @@ function setupNotificationListener() {
     events.observeNotification();
     events.on("notification", function (notification: any) {
         if (!isRunning) return;
-
         var pkg = notification.getPackageName();
         if (pkg !== wechatPackage) return;
-
         var ticker = notification.tickerText;
         if (ticker) {
             var text = ticker.toString();
-            log("收到微信通知: " + text);
-
+            log("微信通知: " + text);
             if (isVideoCallNotification(text)) {
-                log("检测到微信通话来电!");
+                log("检测到来电!");
                 handleIncomingCall(text);
             }
         }
@@ -149,165 +161,204 @@ function setupNotificationListener() {
 // ======================== 来电处理 ========================
 
 function handleIncomingCall(notificationText: string) {
-    if (hasAnswered) {
-        log("已经在处理一个来电，跳过");
-        return;
-    }
+    if (hasAnswered) return;
 
-    // 检查联系人白名单
     if (allowedContacts.length > 0) {
         var contactName = extractContactName(notificationText);
         if (contactName && allowedContacts.indexOf(contactName) === -1) {
-            log("联系人 " + contactName + " 不在白名单中，跳过");
+            log("联系人 " + contactName + " 不在白名单，跳过");
             return;
         }
     }
 
     hasAnswered = true;
-
-    // 随机延迟，模拟人工反应
     var delay = random(answerDelayMin, answerDelayMax);
-    log("将在 " + (delay / 1000).toFixed(1) + " 秒后自动接听...");
-
+    log("将在 " + (delay / 1000).toFixed(1) + " 秒后接听...");
     sleep(delay);
 
     if (!isRunning) {
-        log("脚本已暂停，取消接听");
+        log("已暂停，取消接听");
         hasAnswered = false;
         return;
     }
     answerCall();
 }
 
-// ======================== 接听操作 ========================
+// ======================== 自动检测按钮位置 ========================
 
-function answerCall() {
-    log("正在尝试自动接听...");
-    setStatus("接听中...");
-
-    // 方式1：直接在微信来电界面查找并点击接听按钮
-    if (tryClickAnswer()) {
-        log("接听成功!");
-        onCallAnswered();
-        return;
+function dumpAllControls() {
+    log("=== dump 控件 ===");
+    log("屏幕: " + device.width + "x" + device.height);
+    var allNodes = selector().clickable(true).find();
+    log("可点击控件: " + allNodes.length);
+    for (var i = 0; i < allNodes.length; i++) {
+        var node = allNodes[i];
+        var bounds = node.bounds();
+        log("[" + i + "] text=\"" + node.text() + "\" center=(" +
+            bounds.centerX() + "," + bounds.centerY() + ") rect=[" +
+            bounds.left + "," + bounds.top + "," + bounds.right + "," + bounds.bottom + "]");
     }
-
-    log("接听失败，未找到接听按钮");
-    hasAnswered = false;
-    setStatus("运行中");
+    log("=== dump 结束 ===");
 }
 
 /**
- * 在当前界面查找接听按钮并点击
- * 微信视频来电界面的特征：
- *   - 全屏来电界面
- *   - 有"视频通话"/"语音通话"等文字
- *   - 有接听按钮（可能是"接听"/"接受"文字或绿色圆形按钮）
+ * 自动查找接听按钮坐标（兜底方案）
  */
-function tryClickAnswer(): boolean {
-    // 步骤1：查找文字为"接听"或"接受"的控件
+function autoFindAnswerButton(): { x: number; y: number } {
+    dumpAllControls();
+
+    // 文字匹配
     var answerTexts = ["接听", "接受"];
     for (var i = 0; i < answerTexts.length; i++) {
-        var btn = text(answerTexts[i]).findOne(3000);
+        var btn = text(answerTexts[i]).findOne(1000);
         if (btn) {
-            log("找到接听按钮（text: " + answerTexts[i] + "），点击");
-            btn.click();
-            sleep(1000);
-            return true;
+            var b = btn.bounds();
+            log("自动检测-文字匹配: (" + b.centerX() + ", " + b.centerY() + ")");
+            return { x: b.centerX(), y: b.centerY() };
         }
-    }
-
-    // 步骤2：查找 desc 为"接听"或"接受"的控件
-    for (var j = 0; j < answerTexts.length; j++) {
-        var descBtn = desc(answerTexts[j]).findOne(2000);
+        var descBtn = desc(answerTexts[i]).findOne(500);
         if (descBtn) {
-            log("找到接听按钮（desc: " + answerTexts[j] + "），点击");
-            descBtn.click();
-            sleep(1000);
-            return true;
+            var db = descBtn.bounds();
+            log("自动检测-desc匹配: (" + db.centerX() + ", " + db.centerY() + ")");
+            return { x: db.centerX(), y: db.centerY() };
         }
     }
 
-    // 步骤3：查找包含"接听"/"接受"文字的控件
-    var partialTexts = ["接听", "接受"];
-    for (var k = 0; k < partialTexts.length; k++) {
-        var partialBtn = selector().textContains(partialTexts[k]).findOne(2000);
-        if (partialBtn) {
-            log("找到包含\"" + partialTexts[k] + "\"的控件，点击");
-            partialBtn.click();
-            sleep(1000);
-            return true;
+    // 可点击控件查找（右下区域）
+    var clickables = selector().clickable(true).find();
+    for (var j = 0; j < clickables.length; j++) {
+        var node = clickables[j];
+        var bounds = node.bounds();
+        if (bounds.centerY() > device.height * 0.7 && bounds.centerX() > device.width * 0.55) {
+            log("自动检测-右下控件: (" + bounds.centerX() + ", " + bounds.centerY() + ")");
+            return { x: bounds.centerX(), y: bounds.centerY() };
         }
     }
 
-    // 步骤4：如果检测到来电界面，尝试查找可点击的按钮（适配不同微信版本）
-    if (isIncomingCallScreen()) {
-        log("检测到来电界面，尝试查找可点击的接听按钮");
+    // 比例计算
+    var x = Math.floor(device.width * 0.75);
+    var y = Math.floor(device.height * 0.88);
+    log("自动检测-计算坐标: (" + x + ", " + y + ")");
+    return { x: x, y: y };
+}
 
-        // 查找屏幕下半部分、右侧的可点击控件（接听按钮通常在右下）
-        var clickables = className("android.widget.ImageView").clickable(true).find();
-        for (var m = 0; m < clickables.length; m++) {
-            var node = clickables[m];
-            var bounds = node.bounds();
-            if (bounds.centerY() > device.height * 0.5 && bounds.centerX() > device.width * 0.5) {
-                log("点击右侧可点击控件: (" + bounds.centerX() + ", " + bounds.centerY() + ")");
-                node.click();
-                sleep(1000);
+/**
+ * 自动查找挂断按钮坐标
+ */
+function autoFindHangupButton(): { x: number; y: number } {
+    var hangupTexts = ["挂断", "结束通话"];
+    for (var i = 0; i < hangupTexts.length; i++) {
+        var btn = text(hangupTexts[i]).findOne(1000);
+        if (btn) { var b = btn.bounds(); return { x: b.centerX(), y: b.centerY() }; }
+        var descBtn = desc(hangupTexts[i]).findOne(500);
+        if (descBtn) { var db = descBtn.bounds(); return { x: db.centerX(), y: db.centerY() }; }
+    }
+    var clickables = selector().clickable(true).find();
+    for (var j = 0; j < clickables.length; j++) {
+        var node = clickables[j];
+        var bounds = node.bounds();
+        if (bounds.centerY() > device.height * 0.7 && bounds.centerX() < device.width * 0.45) {
+            return { x: bounds.centerX(), y: bounds.centerY() };
+        }
+    }
+    return { x: Math.floor(device.width * 0.25), y: Math.floor(device.height * 0.88) };
+}
+
+// ======================== 接听操作 ========================
+
+function isFullScreenCallUI(): boolean {
+    var keywords = ["视频通话", "语音通话", "邀请你"];
+    for (var i = 0; i < keywords.length; i++) {
+        var nodes = selector().textContains(keywords[i]).find();
+        for (var j = 0; j < nodes.length; j++) {
+            var bounds = nodes[j].bounds();
+            if (bounds.centerY() > device.height * 0.15 && bounds.centerY() < device.height * 0.7) {
                 return true;
             }
         }
-
-        // 尝试通过 View 查找
-        var viewClickables = className("android.view.View").clickable(true).find();
-        for (var n = 0; n < viewClickables.length; n++) {
-            var vNode = viewClickables[n];
-            var vBounds = vNode.bounds();
-            if (vBounds.centerY() > device.height * 0.6 && vBounds.centerX() > device.width * 0.5) {
-                log("点击右侧 View 控件: (" + vBounds.centerX() + ", " + vBounds.centerY() + ")");
-                vNode.click();
-                sleep(1000);
-                return true;
-            }
-        }
-
-        // 最后手段：直接点击接听按钮的预估坐标位置
-        log("尝试点击预估接听按钮位置");
-        var answerX = Math.floor(device.width * 0.75);
-        var answerY = Math.floor(device.height * 0.85);
-        click(answerX, answerY);
-        sleep(1000);
-        return true;
     }
-
     return false;
+}
+
+function answerCall() {
+    log("开始接听...");
+    setStatus("接听中...");
+
+    if (currentPackage() !== wechatPackage) {
+        sleep(500);
+    }
+
+    // 步骤1：处理横幅
+    // 如果设置了横幅坐标，直接用；否则自动判断
+    if (bannerX !== 0 && bannerY !== 0) {
+        // 有手动横幅坐标，先判断是否需要点横幅
+        if (!isFullScreenCallUI()) {
+            var bp = addJitter(bannerX, bannerY);
+            log("手动横幅坐标，点击展开: (" + bp.x + ", " + bp.y + ")");
+            click(bp.x, bp.y);
+            sleep(1500);
+        }
+    } else {
+        // 没设横幅坐标，走自动检测
+        if (!isFullScreenCallUI()) {
+            var bx = Math.floor(device.width / 2);
+            var by = Math.floor(device.height * 0.06);
+            var bj = addJitter(bx, by);
+            log("自动检测到横幅，点击展开: (" + bj.x + ", " + bj.y + ")");
+            click(bj.x, bj.y);
+            sleep(1500);
+        }
+    }
+
+    // 步骤2：点击接听按钮
+    var ax: number;
+    var ay: number;
+
+    if (answerX !== 0 && answerY !== 0) {
+        // 有手动坐标，直接用（加随机偏移）
+        var ap = addJitter(answerX, answerY);
+        ax = ap.x;
+        ay = ap.y;
+        log("手动坐标接听: (" + ax + ", " + ay + ")");
+    } else {
+        // 没设坐标，走自动检测
+        var pos = autoFindAnswerButton();
+        var pj = addJitter(pos.x, pos.y);
+        ax = pj.x;
+        ay = pj.y;
+        log("自动检测接听: (" + ax + ", " + ay + ")");
+    }
+
+    click(ax, ay);
+    sleep(1000);
+
+    log("已点击接听按钮");
+    onCallAnswered();
 }
 
 // ======================== 通话状态管理 ========================
 
 function onCallAnswered() {
-    log("===== 已成功接听微信通话 =====");
+    log("===== 接听成功 =====");
     setStatus("通话中");
 
     if (autoHangupTimeout > 0) {
         log("将在 " + autoHangupTimeout + " 秒后自动挂断");
-        setTimeout(function () {
-            hangupCall();
-        }, autoHangupTimeout * 1000);
+        setTimeout(function () { hangupCall(); }, autoHangupTimeout * 1000);
     }
-
     monitorCallEnd();
 }
 
 function monitorCallEnd() {
     var checkEnd = setInterval(function () {
         if (currentPackage() !== wechatPackage) {
-            log("检测到通话已结束");
+            log("通话已结束");
             resetState();
             clearInterval(checkEnd);
             return;
         }
         if (!isInCallScreen()) {
-            log("检测到通话界面已消失，通话结束");
+            log("通话界面消失，通话结束");
             resetState();
             clearInterval(checkEnd);
         }
@@ -317,52 +368,35 @@ function monitorCallEnd() {
 function isInCallScreen(): boolean {
     return selector().textContains("静音").exists() ||
            selector().textContains("免提").exists() ||
+           selector().textContains("摄像头").exists() ||
            text("挂断").exists() ||
            desc("挂断").exists();
 }
 
 function hangupCall() {
-    log("正在自动挂断...");
-
-    var hangupTexts = ["挂断", "结束通话"];
-    for (var i = 0; i < hangupTexts.length; i++) {
-        var btn = text(hangupTexts[i]).findOne(2000);
-        if (btn) {
-            btn.click();
-            log("已挂断通话");
-            resetState();
-            return;
-        }
-        var descBtn = desc(hangupTexts[i]).findOne(500);
-        if (descBtn) {
-            descBtn.click();
-            log("已挂断通话");
-            resetState();
-            return;
-        }
-    }
-
-    // 备用：点击挂断按钮预估位置（通常在底部中间或左下）
-    click(device.width * 0.25, device.height * 0.85);
-    log("已尝试点击挂断区域");
+    log("自动挂断...");
+    var pos = autoFindHangupButton();
+    var jp = addJitter(pos.x, pos.y);
+    log("点击挂断: (" + jp.x + ", " + jp.y + ")");
+    click(jp.x, jp.y);
+    sleep(500);
     resetState();
 }
 
 function resetState() {
     hasAnswered = false;
     setStatus("运行中");
-    log("状态已重置，等待下一个来电...");
+    log("等待下一个来电...");
 }
 
-// ======================== 轮询检测（备用方案） ========================
+// ======================== 轮询检测 ========================
 
 function startPollingCheck() {
     setInterval(function () {
         if (!isRunning || hasAnswered) return;
         if (currentPackage() !== wechatPackage) return;
-
         if (isIncomingCallScreen()) {
-            log("轮询检测到微信来电!");
+            log("轮询检测到来电!");
             handleIncomingCall("视频通话");
         }
     }, checkInterval);
@@ -371,9 +405,7 @@ function startPollingCheck() {
 function isIncomingCallScreen(): boolean {
     var keywords = ["视频通话", "语音通话", "邀请你", "Invited you"];
     for (var i = 0; i < keywords.length; i++) {
-        if (selector().textContains(keywords[i]).exists()) {
-            return true;
-        }
+        if (selector().textContains(keywords[i]).exists()) return true;
     }
     return false;
 }
@@ -381,15 +413,25 @@ function isIncomingCallScreen(): boolean {
 // ======================== 初始化 ========================
 
 export function init() {
-    log("===== 微信自动接听模块初始化 =====");
-    log("接听延迟: " + (answerDelayMin / 1000) + "-" + (answerDelayMax / 1000) + " 秒");
-    log("联系人白名单: " + (allowedContacts.length > 0 ? allowedContacts.join(", ") : "全部接听"));
+    log("===== 微信自动接听初始化 =====");
+    log("屏幕: " + device.width + "x" + device.height);
 
-    // 启动通知监听
+    // 从持久化存储恢复配置
+    answerDelayMin = storage.get("answerDelayMin", 2000);
+    answerDelayMax = storage.get("answerDelayMax", 5000);
+    autoHangupTimeout = storage.get("autoHangupTimeout", 0);
+    bannerX = storage.get("bannerX", 0);
+    bannerY = storage.get("bannerY", 0);
+    answerX = storage.get("answerX", 0);
+    answerY = storage.get("answerY", 0);
+    jitter = storage.get("jitter", 5);
+
+    log("延迟: " + (answerDelayMin / 1000) + "-" + (answerDelayMax / 1000) + " 秒");
+    log("横幅坐标: " + (bannerX ? "(" + bannerX + "," + bannerY + ")" : "未设置，自动检测"));
+    log("接听坐标: " + (answerX ? "(" + answerX + "," + answerY + ")" : "未设置，自动检测"));
+    log("随机偏移: ±" + jitter + "px");
+
     setupNotificationListener();
-
-    // 同时启动轮询检测作为备用
     startPollingCheck();
-
     setStatus("运行中");
 }

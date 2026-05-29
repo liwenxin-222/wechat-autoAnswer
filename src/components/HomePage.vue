@@ -10,37 +10,47 @@
                 </p>
             </f7-block>
 
-            <!-- 控制按钮 -->
+            <!-- 启动/暂停 -->
             <f7-block inset>
                 <div class="button-row">
-                    <f7-button
-                        @click="startAutoAnswer"
-                        :disabled="status === '运行中'"
-                        fill
-                        round
-                        color="green"
-                    >
-                        启动
-                    </f7-button>
-                    <f7-button
-                        @click="stopAutoAnswer"
-                        :disabled="status !== '运行中'"
-                        fill
-                        round
-                        color="red"
-                    >
-                        暂停
-                    </f7-button>
+                    <f7-button @click="startAutoAnswer" :disabled="status === '运行中'" fill round color="green">启动</f7-button>
+                    <f7-button @click="stopAutoAnswer" :disabled="status !== '运行中'" fill round color="red">暂停</f7-button>
                 </div>
             </f7-block>
 
-            <!-- 日志区域 -->
+            <!-- 横幅坐标 -->
+            <f7-block-title>横幅坐标（可选）</f7-block-title>
+            <f7-block inset><p class="section-desc">来电时顶部小横幅的位置。不填则自动检测。</p></f7-block>
+            <f7-list inset>
+                <f7-list-input label="X" type="number" placeholder="540" :value="form.bannerX" @input="form.bannerX = Number($event.target.value)" />
+                <f7-list-input label="Y" type="number" placeholder="80" :value="form.bannerY" @input="form.bannerY = Number($event.target.value)" />
+            </f7-list>
+
+            <!-- 接听坐标 -->
+            <f7-block-title>接听坐标（可选）</f7-block-title>
+            <f7-block inset><p class="section-desc">全屏来电时接听按钮的位置。不填则自动检测。</p></f7-block>
+            <f7-list inset>
+                <f7-list-input label="X" type="number" placeholder="810" :value="form.answerX" @input="form.answerX = Number($event.target.value)" />
+                <f7-list-input label="Y" type="number" placeholder="2100" :value="form.answerY" @input="form.answerY = Number($event.target.value)" />
+            </f7-list>
+
+            <!-- 保存 -->
+            <f7-block inset>
+                <f7-button @click="saveConfig" fill round color="blue">保存配置</f7-button>
+            </f7-block>
+
+            <f7-block inset>
+                <p class="tip-text">
+                    获取坐标：手机设置 → 开发者选项 → 开启"指针位置"。
+                    点击时自动加入 ±5px 随机偏移。配置保存后重启也保留。
+                </p>
+            </f7-block>
+
+            <!-- 日志 -->
             <f7-block-title>运行日志</f7-block-title>
             <f7-block strong inset>
                 <div class="log-container">
-                    <p v-for="(log, index) in logs" :key="index" class="log-item">
-                        {{ log }}
-                    </p>
+                    <p v-for="(log, index) in logs" :key="index" class="log-item">{{ log }}</p>
                     <p v-if="logs.length === 0" class="log-empty">暂无日志</p>
                 </div>
             </f7-block>
@@ -49,15 +59,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { f7Card, f7CardHeader, f7CardContent, f7Block, f7BlockTitle, f7Button } from 'framework7-vue'
+import { ref, computed, reactive, onMounted } from 'vue'
+import { f7Card, f7CardHeader, f7CardContent, f7Block, f7BlockTitle, f7Button, f7List, f7ListInput } from 'framework7-vue'
 import { callHandler, registerHandler } from '../js_bridge'
 
-// 响应式状态
 const status = ref('运行中')
 const logs = ref<string[]>([])
 
-// 状态样式
+const form = reactive({ bannerX: 0, bannerY: 0, answerX: 0, answerY: 0 })
+
 const statusClass = computed(() => {
     if (status.value === '运行中') return 'status-running'
     if (status.value === '已暂停') return 'status-paused'
@@ -66,89 +76,50 @@ const statusClass = computed(() => {
     return ''
 })
 
-// 添加日志（最多保留 50 条）
 function addLog(msg: string) {
-    const time = new Date().toLocaleTimeString()
-    logs.value.unshift(`[${time}] ${msg}`)
-    if (logs.value.length > 50) {
-        logs.value = logs.value.slice(0, 50)
-    }
+    const t = new Date().toLocaleTimeString()
+    logs.value.unshift(`[${t}] ${msg}`)
+    if (logs.value.length > 100) logs.value = logs.value.slice(0, 100)
 }
 
-// 启动自动接听
-function startAutoAnswer() {
-    callHandler('start')
+function startAutoAnswer() { callHandler('start') }
+function stopAutoAnswer() { callHandler('stop') }
+
+function saveConfig() {
+    callHandler('updateConfig', JSON.stringify({
+        bannerX: form.bannerX, bannerY: form.bannerY,
+        answerX: form.answerX, answerY: form.answerY,
+    }))
+    addLog('已保存 横幅(' + form.bannerX + ',' + form.bannerY + ') 接听(' + form.answerX + ',' + form.answerY + ')')
 }
 
-// 暂停自动接听
-function stopAutoAnswer() {
-    callHandler('stop')
-}
-
-// 注册 JsBridge 回调，接收 AutoX 端的状态变更
 onMounted(() => {
-    // 接收状态变更
-    registerHandler('onStatusChange', (data: string) => {
-        status.value = data
-        addLog('状态变更: ' + data)
-    })
+    registerHandler('onStatusChange', (data: string) => { status.value = data; addLog('状态: ' + data) })
+    registerHandler('onLog', (data: string) => { addLog(data) })
 
-    // 接收日志
-    registerHandler('onLog', (data: string) => {
-        addLog(data)
+    callHandler('getStatus', '', (data: string | null) => {
+        if (data) {
+            try {
+                const c = JSON.parse(data).config
+                if (c) { form.bannerX = c.bannerX || 0; form.bannerY = c.bannerY || 0; form.answerX = c.answerX || 0; form.answerY = c.answerY || 0 }
+            } catch (e) { /* */ }
+        }
     })
-
     addLog('控制面板已就绪')
 })
 </script>
 
 <style scoped>
-.button-row {
-    display: flex;
-    gap: 12px;
-    justify-content: center;
-}
-
-.button-row > * {
-    flex: 1;
-}
-
-.status-text {
-    font-size: 16px;
-    font-weight: bold;
-    text-align: center;
-}
-
-.status-running {
-    color: #4caf50;
-}
-
-.status-paused {
-    color: #ff9800;
-}
-
-.status-calling {
-    color: #2196f3;
-}
-
-.status-answering {
-    color: #e91e63;
-}
-
-.log-container {
-    max-height: 200px;
-    overflow-y: auto;
-    font-size: 12px;
-    font-family: monospace;
-}
-
-.log-item {
-    margin: 2px 0;
-    word-break: break-all;
-}
-
-.log-empty {
-    color: #999;
-    text-align: center;
-}
+.button-row { display: flex; gap: 12px; justify-content: center; }
+.button-row > * { flex: 1; }
+.status-text { font-size: 16px; font-weight: bold; text-align: center; }
+.status-running { color: #4caf50; }
+.status-paused { color: #ff9800; }
+.status-calling { color: #2196f3; }
+.status-answering { color: #e91e63; }
+.section-desc { font-size: 12px; color: #888; margin: 0; }
+.tip-text { font-size: 12px; color: #888; line-height: 1.6; }
+.log-container { max-height: 300px; overflow-y: auto; font-size: 12px; font-family: monospace; }
+.log-item { margin: 2px 0; word-break: break-all; }
+.log-empty { color: #999; text-align: center; }
 </style>
